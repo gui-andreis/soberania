@@ -101,7 +101,7 @@
     e.debtTol = debtTol;
     const rpTarget = U.clamp(0.6 + Math.max(0, e.debt - debtTol) * 0.06 * (1 - repression) + Math.max(0, e.primDef) * 0.55 + (st.flags.default ? 9 : 0)
       + (50 - e.confidence) * 0.06 + (e.reserves < 3 ? (3 - e.reserves) * 0.8 : 0) + (st.dip.sanctionedBy.length ? 2 : 0)
-      - (H.trait(st, 'reserveCurrency', 0) ? 0.8 : 0), 0.2, 30);
+      + Math.min(6, (e.flight || 0) * 0.05) + Math.min(3, (e.negRate || 0) * 0.4) - (H.trait(st, 'reserveCurrency', 0) ? 0.8 : 0), 0.2, 30);
     e.riskPrem += (rpTarget - e.riskPrem) * 0.15;
 
     // monetização: explícita (flag) ou forçada (sem acesso a mercado)
@@ -112,7 +112,10 @@
 
     // ---- Política monetária ----
     const target = st.inflTarget;
-    const cred = U.clamp(0.15 + (st.cbIndep ? 0.3 : 0) + (target != null ? 0.15 : 0) + (e.confidence - 50) / 250 - Math.min(0.35, Math.max(0, e.inflMemory - 15) / 200) + (st.flags.credShift || 0) - mon * 0.4, 0.02, 0.9);
+    // dovMem: memória (≈1 ano) de quanto o juro ficou abaixo do que a regra técnica pediria (em pontos de log).
+    // Juro artificialmente baixo destrói a credibilidade e desancora as expectativas.
+    const dovPen = Math.min(0.6, (e.dovMem || 0) * 3);
+    const cred = U.clamp(0.15 + (st.cbIndep ? 0.3 : 0) + (target != null ? 0.15 : 0) + (e.confidence - 50) / 250 - Math.min(0.35, Math.max(0, e.inflMemory - 15) / 200) + (st.flags.credShift || 0) - mon * 0.4 - dovPen, 0.02, 0.9);
     e.cred = cred;
     const anchor = target != null ? target : (H.isFixed(st) ? w.inflEff : Math.min(e.infl, Math.max(3, w.inflEff + 1)));
     // expectativa: combinação de âncora e inflação passada (em log, para lidar com hiperinflação)
@@ -126,19 +129,40 @@
     else if (st.fxRegime === 'conversibilidade' || st.fxRegime === 'ouro') rateTarget = w.rateEff + e.riskPrem + Math.max(0, 3 - e.reserves) * 1.5;
     else {
       const tgt = target != null ? target : Math.max(2, Math.min(e.infl, w.inflEff + 2));
-      rateTarget = neutral + e.inflExp + 0.5 * (e.infl - tgt) + 0.5 * e.gap - (st.flags.pressaoBC ? 1.0 : 0);
+      // regra de Taylor em termos reais (juro real alvo limitado a neutro+20) e convertida em nominal pela equação de Fisher:
+      // evita juros reais absurdos (50%+) em hiperinflação, que antes alimentavam a própria inflação via custo da dívida.
+      const realT = U.clamp(neutral + 0.5 * (e.infl - tgt) + 0.5 * e.gap, neutral - 6, neutral + 20) - (st.flags.pressaoBC ? 1.0 : 0);
+      rateTarget = ((1 + realT / 100) * (1 + e.inflExp / 100) - 1) * 100;
       if (H.isFixed(st)) rateTarget = Math.max(rateTarget, w.rateEff + e.riskPrem + Math.max(0, 4 - e.reserves));
     }
     rateTarget = Math.max(H.t(st) < 2009 ? 0.5 : -0.5, rateTarget);
-    if (st.rateMode === 'manual' && !st.cbIndep && st.fxRegime !== 'euro' && st.fxRegime !== 'dolarizado') e.rate += (e.rateManual - e.rate) * 0.6;
+    e.taylor = rateTarget;
+    const manual = st.rateMode === 'manual' && !st.cbIndep && st.fxRegime !== 'euro' && st.fxRegime !== 'dolarizado';
+    if (manual) e.rate = Math.max(-50, e.rateManual); // o governo fixa a taxa por decreto: vale na hora
+    else if (e.rate > 100 || rateTarget > 100) e.rate = P(L(e.rate) + (L(rateTarget) - L(e.rate)) * 0.3);
     else e.rate += (rateTarget - e.rate) * 0.3;
+    const dov = Math.max(0, L(rateTarget) - L(e.rate));
+    e.dovMem = (e.dovMem || 0) + (dov - (e.dovMem || 0)) / 12;
+    if (manual) e.inflExpShockL = (e.inflExpShockL || 0) + Math.min(0.05, dov * 0.006); // o mercado precifica o juro político
     const realRate = ((1 + e.rate / 100) / (1 + e.inflExp / 100) - 1) * 100;
     e.realRate = realRate;
+    // Juro nominal negativo: abaixo de ~-0,5% o repasse aos bancos trava (as pessoas sacam dinheiro vivo, a margem
+    // dos bancos some). O efeito estimulante diminui e surgem custos financeiros ("reversal rate").
+    const negRate = Math.max(0, -0.5 - e.rate);
+    const rateEff = e.rate >= -0.5 ? e.rate : -0.5 - negRate * 0.35;
+    const realEff = ((1 + rateEff / 100) / (1 + e.inflExp / 100) - 1) * 100;
+    e.negRate = negRate;
+    // Fuga da moeda: com juro real muito negativo ninguém quer guardar moeda local → dolarização, compra de bens,
+    // fuga de capitais, depreciação e inflação (Argentina, Venezuela, Turquia 2021).
+    const flight = Math.max(0, -realRate - 3);
+    e.flight = flight;
 
     // ---- Hiato do produto (demanda) ----
     const debtDrag = e.debt > 90 ? 0.5 : 1;
     const fiscal = 0.55 * debtDrag * (e.primDef - e.primDefEMA) + 0.12 * (e.primDef - 1);
-    const monetary = -0.4 * U.clamp(realRate - neutral, -12, 15) * (1 - planned * 0.8);
+    // estímulo monetário satura (crédito não cresce infinitamente); fuga da moeda e juro negativo desorganizam o crédito
+    const monetary = -0.4 * U.clamp(realEff - neutral, -8, 15) * (1 - planned * 0.8)
+      - Math.min(9, flight * 0.07) - Math.min(3, negRate * 0.5);
     const trade = w.tradeEff;
     const external = e.open * trade * (1.1 * (w.gEff - 3) + 0.04 * (e.rer - 100))
       + commodity * 7 * (w.commodEff / 100 - 1) * Math.min(1.2, e.open + 0.2)
@@ -148,7 +172,12 @@
     const credit = -Math.max(0, e.riskPrem - 6) * 0.25;
     const hyper = -Math.max(0, Math.log10(Math.max(1, e.infl)) - 1.7) * 2.5;
     const shortage = -(e.shortage || 0) * 0.04;
-    const gapStar = U.clamp(fiscal + monetary + external + conf + sanc + credit + hyper + shortage + (e.gapMod || 0), -25, 10);
+    // salário real: piso acima/abaixo da sua referência recente mexe no consumo das famílias e no custo das empresas
+    if (e.minWageRef == null) e.minWageRef = e.minWage;
+    const wageGap = U.clamp(e.minWage - e.minWageRef, -60, 60);
+    e.minWageRef += (e.minWage - e.minWageRef) / 36;
+    const wageDemand = wageGap * 0.035;
+    const gapStar = U.clamp(fiscal + monetary + external + conf + sanc + credit + hyper + shortage + wageDemand + (e.gapMod || 0), -25, 10);
     e.gapStar = gapStar;
     e.gap += (gapStar - e.gap) * 0.12 + U.gauss(rng) * 0.22;
     e.gap = U.clamp(e.gap, -30, 12);
@@ -164,16 +193,16 @@
     const fxDepAnnual = (e.fxDep12 || 0); // depreciação acumulada 12m (%)
     const oilShock = oilT < 0 ? (-oilT) * 0.05 * (w.oilEff - (e.oilRef || w.oilEff)) : oilT * 0.01 * (w.oilEff - (e.oilRef || w.oilEff));
     let piTarget = e.inflExp + 0.32 * e.gap + fxPass * Math.max(-20, fxDepAnnual - e.infl) * 0.5 + oilShock
-      + (e.supplyShock || 0) - (e.budget.subsidios - e.subsRef) * 0.8 + (e.taxes.comercio - e.tariffRef) * 0.04;
+      + (e.supplyShock || 0) - (e.budget.subsidios - e.subsRef) * 0.8 + (e.taxes.comercio - e.tariffRef) * 0.04 + wageGap * 0.03;
     // emissão monetária: impulso multiplicativo (pode gerar hiperinflação)
     const monPush = mon * Math.max(0, e.primDef + Math.max(0, e.debt * realRate / 100) * 0.2);
-    let lPiT = L(Math.max(-12, piTarget)) + monPush * 0.05;
+    let lPiT = L(Math.max(-12, piTarget)) + monPush * 0.05 + Math.min(1.2, flight * 0.0045);
     if (H.isFixed(st) && st.fxRegime !== 'ouro') lPiT = lPiT * 0.5 + L(w.inflEff + 0.3 * e.gap) * 0.5;
     if (st.fxRegime === 'ouro') lPiT = Math.max(L(-12), lPiT * 0.3 + L(w.inflEff) * 0.7);
     if (st.flags.congelamento) lPiT = Math.min(lPiT, L(3));
     const speed = 0.05 + 0.3 * (1 - inertia);
     e.inflL += (lPiT - e.inflL) * speed + U.gauss(rng) * 0.002;
-    e.inflL = U.clamp(e.inflL, L(-25), L(1e5));
+    e.inflL = U.clamp(e.inflL, L(-25), 40); // sem teto prático (40 em log ≈ 2e17 %); só evita estouro numérico
     let infl = P(e.inflL);
     // economia planificada: inflação reprimida vira escassez
     if (planned > 0.4) {
@@ -185,22 +214,22 @@
     } else e.shortage = Math.max(0, (e.shortage || 0) * 0.9);
     e.infl = infl;
     e.inflMemory += (Math.min(e.infl, 3000) - e.inflMemory) / 120;
-    e.priceIdx *= Math.pow(1 + e.infl / 100, 1 / 12);
+    e.priceIdx = Math.min(1e300, e.priceIdx * Math.exp(e.inflL / 12));
 
     // ---- Câmbio ----
     let dep = 0; // % ao mês (positivo = desvaloriza)
     const worldReal = w.rateEff - w.inflEff;
     if (st.fxRegime === 'flutuante' || st.fxRegime === 'controle') {
       dep = (Math.exp((e.inflL - L(w.inflEff)) / 12) - 1) * 100 + 0.04 * (100 - e.rer)
-        - 0.06 * U.clamp(realRate - worldReal - e.riskPrem, -10, 10) / 3
+        - 0.06 * U.clamp(realEff - worldReal - e.riskPrem, -10, 10) / 3 + Math.min(8, flight * 0.04)
         - commodity * 0.15 * ((w.commodEff - (e.commodRef || w.commodEff)) / Math.max(30, e.commodRef || w.commodEff)) * 100 / 12
         + (50 - e.confidence) * 0.01 + U.gauss(rng) * (st.fxRegime === 'controle' ? 0.5 : 1.3);
       if (st.fxRegime === 'controle') dep *= 0.6;
     } else if (st.fxRegime === 'banda') {
       dep = (Math.exp((e.inflL - L(w.inflEff)) / 12) - 1) * 100 * 0.9 + U.gauss(rng) * 0.3;
     } else dep = 0;
-    dep = U.clamp(dep, -15, 400);
-    e.fx *= 1 + dep / 100;
+    dep = U.clamp(dep, -15, 1e5);
+    e.fx = Math.min(1e300, e.fx * (1 + dep / 100));
     e.rer *= (1 + dep / 100) * Math.pow((1 + w.inflEff / 100) / (1 + e.infl / 100), 1 / 12);
     e.rer = U.clamp(e.rer, 25, 400);
     e.depHist.push(dep); if (e.depHist.length > 12) e.depHist.shift();
@@ -213,7 +242,7 @@
       + commodity * 6 * (w.commodEff / 100 - 1) + oilT * 6 * (w.oilEff / 70 - 1) - (e.taxes.exportacao || 0) * commodity * 0.05 + (e.tbShift || 0);
     e.tb += (tbTarget - e.tb) * 0.08;
     const capOpen = st.flags.controleCapitais ? 0.3 : (st.flags.capitaisLivres ? 1.2 : 0.8);
-    const flows = capOpen * (0.04 * U.clamp(realRate - worldReal - e.riskPrem * 0.6, -15, 15) + (e.confidence - 50) * 0.006);
+    const flows = capOpen * (0.04 * U.clamp(realEff - worldReal - e.riskPrem * 0.6, -15, 15) + (e.confidence - 50) * 0.006) - Math.min(2, flight * 0.015);
     let drain = 0;
     if (H.isFixed(st) && st.fxRegime !== 'euro' && st.fxRegime !== 'dolarizado' && !H.trait(st, 'reserveCurrency', 0)) drain = Math.max(0, 93 - e.rer) * 0.012 + Math.max(0, -flows) * 0.5;
     const importsPctGDP = Math.max(3, e.open * 22);
@@ -230,13 +259,13 @@
     e.gapPrev = e.gap;
     const fxReval = e.extShare * e.debt * (dep / 100 - (e.infl - w.inflEff) / 1200);
     e.debt += (e.primDef + e.debt * (effReal - realG) / 100) / 12 - (mon * Math.max(0, e.primDef)) / 12 + Math.max(-2, fxReval);
-    e.debt = U.clamp(e.debt, 0, 400);
+    e.debt = U.clamp(e.debt, 0, 1e9); // sem teto (antes 400%); o limite só evita estouro numérico
     e.interestNom = Math.min(80, e.debt * e.effRate / 100);
     e.interestReal = e.debt * effReal / 100;
     e.nominalDef = e.primDef + e.interestNom;
 
     // ---- Moeda ----
-    e.money *= Math.pow((1 + e.infl / 100) * (1 + e.gpot / 100), 1 / 12) * (1 + mon * Math.max(0, e.primDef) / 600);
+    e.money = Math.min(1e300, e.money * Math.exp(e.inflL / 12) * Math.pow(1 + e.gpot / 100, 1 / 12) * (1 + mon * Math.max(0, e.primDef) / 600));
 
     // ---- Trabalho ----
     const uStar = H.trait(st, 'uStar', 6) + (e.uStarShift || 0) - planned * 3;
@@ -259,7 +288,8 @@
     // ---- Confiança ----
     const confT = 50 + 1.8 * U.clamp(e.growthYoY - 2, -8, 8) - Math.min(25, Math.max(0, e.infl - 6) * 0.25)
       - Math.max(0, e.debt - debtTol) * 0.2 * (1 - repression) - Math.max(0, e.primDef - 1.5) * 2 + (st.pol.stability - 50) * 0.25
-      + (e.confShift || 0) - (st.flags.default ? 15 : 0) - Math.max(0, 3 - e.reserves) * 3;
+      + (e.confShift || 0) - (st.flags.default ? 15 : 0) - Math.max(0, 3 - e.reserves) * 3
+      - Math.min(20, flight * 0.25) - Math.min(15, negRate * 2.5) - Math.min(15, (e.dovMem || 0) * 25);
     e.confidence += (U.clamp(confT, 2, 98) - e.confidence) * 0.12;
     e.confShift *= 0.985;
     e.povShift *= 0.995;
@@ -287,7 +317,7 @@
     soc.environment += (65 - soc.environment) * 0.002;
 
     // ---- Investimento ----
-    const invT = U.clamp(e.invest0 + (e.confidence - 50) * 0.08 - Math.max(0, realRate - neutral) * 0.15 + (e.investShift || 0), 5, 48);
+    const invT = U.clamp(e.invest0 + (e.confidence - 50) * 0.08 - Math.max(0, realEff - neutral) * 0.15 + (e.investShift || 0), 5, 48);
     e.invest += (invT - e.invest) * 0.03;
 
     // ---- histórico de PIB p/ crescimento interanual ----

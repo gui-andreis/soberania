@@ -18,7 +18,8 @@
   S.ACTION_CATS = {
     monetaria: 'Moeda e câmbio', fiscal: 'Fiscal e orçamento', tributos: 'Impostos', industria: 'Indústria e empresas',
     agro: 'Agro e terra', infra: 'Infraestrutura e energia', social: 'Social e direitos', trabalho: 'Trabalho',
-    seguranca: 'Segurança e justiça', instituicoes: 'Instituições e poder', militar: 'Defesa', diplomacia: 'Diplomacia', ambiente: 'Meio ambiente'
+    seguranca: 'Segurança e justiça', instituicoes: 'Instituições e poder', militar: 'Defesa', diplomacia: 'Diplomacia', ambiente: 'Meio ambiente',
+    livre: 'Criadas por você'
   };
 
   // ======================= MOEDA E CÂMBIO =======================
@@ -584,6 +585,38 @@
   act('imposto_carbono', 'ambiente', 'Imposto sobre carbono', 'Precifica emissões de CO2.', { cost: 2, once: true, congress: 0.6, minYear: 1990, ideo: { e: 10, s: -30 }, kw: ['imposto carbono', 'carbono', 'emissoes'], eff: { tax: 0.4, environment: 6, infl: 0.5, industry: -1.5, rel: { 'bloc:ocidente': 4 }, groups: { estudantes: 6, empresarios: -8, agro: -6, trabalhadores: -2 } } });
   act('acordo_climatico', 'ambiente', 'Aderir a acordo climático internacional', 'Metas de redução de emissões (Kyoto 1997, Paris 2015).', { cost: 1, once: true, minYear: 1997, ideo: { e: -5, s: -25 }, kw: ['acordo de paris', 'clima', 'kyoto', 'acordo climatico'], eff: { environment: 3, rel: { '*': 4 }, groups: { estudantes: 6, agro: -3 } } });
   act('transicao_energetica', 'ambiente', 'Plano de transição energética', 'Eletrificação, descarbonização da indústria e transporte.', { cost: 2, once: true, minYear: 2008, ideo: { e: -15, s: -25 }, kw: ['transicao energetica', 'descarbonizar', 'carro eletrico'], eff: Object.assign(project('subsidios', 0.5, 16, { environment: 8, gpot: 0.05 }, 'A transição energética avançou.'), { groups: { estudantes: 8, empresarios: 2, trabalhadores: -2 } }) });
+
+  // ======================= CARTAS ADICIONAIS =======================
+  act('afrouxamento_quantitativo', 'monetaria', 'Afrouxamento quantitativo (BC compra títulos longos)', 'O Banco Central compra títulos públicos e privados para derrubar os juros longos quando o juro básico já está perto de zero (EUA 2008, Japão 2013, BCE 2015).', {
+    cost: 1, cooldown: 4, minYear: 2001, ideo: { e: -5, s: 0 }, kw: ['afrouxamento quantitativo', 'quantitative easing', 'qe', 'comprar titulos'],
+    req: (st) => (st.fxRegime === 'euro' || st.fxRegime === 'dolarizado' ? 'Sem banco central próprio' : st.e.rate > 3 ? 'Ainda há espaço para cortar o juro básico (juro > 3%)' : true),
+    eff: (st) => ({ demand: st.e.gap < -1 ? 0.8 : 0.3, inflExp: st.e.gap < -1 ? 0.3 : 0.8, fx: 3, confidence: st.e.gap < -1 ? 3 : -2, mods: [phase('Compras de ativos pelo BC', { investShift: 0.05 }, 4)], groups: { financeiro: 6, empresarios: 4, classe_media: 1 } })
+  });
+  act('compulsorio_subir', 'monetaria', 'Aumentar o depósito compulsório dos bancos', 'Os bancos são obrigados a deixar mais dinheiro parado no Banco Central. Freia o crédito sem mexer nos juros (China e Brasil usam muito).', {
+    cost: 1, cooldown: 3, ideo: { e: 0, s: 0 }, kw: ['compulsorio', 'aumentar compulsorio', 'deposito compulsorio', 'enxugar credito'],
+    req: (st) => (st.fxRegime === 'euro' || st.fxRegime === 'dolarizado' ? 'Sem banco central próprio' : true),
+    eff: { demand: -0.5, infl: -0.4, inflExp: -0.2, groups: { financeiro: -5, empresarios: -3 } }
+  });
+  act('compulsorio_reduzir', 'monetaria', 'Reduzir o depósito compulsório dos bancos', 'Libera dinheiro dos bancos para emprestar. Estimula o crédito rapidamente, com risco inflacionário.', {
+    cost: 1, cooldown: 3, ideo: { e: 0, s: 0 }, kw: ['reduzir compulsorio', 'liberar compulsorio', 'liberar credito'],
+    req: (st) => (st.fxRegime === 'euro' || st.fxRegime === 'dolarizado' ? 'Sem banco central próprio' : true),
+    eff: { demand: 0.5, infl: 0.4, inflExp: 0.2, groups: { financeiro: 5, empresarios: 3, classe_media: 2 } }
+  });
+  taxAct('imposto_heranca', 'Aumentar o imposto sobre heranças', 'Alíquota maior e progressiva sobre grandes heranças. Arrecada pouco no curto prazo; reduz a desigualdade entre gerações.', { congress: 0.5, once: true, ideo: { e: -45, s: 0 }, kw: ['heranca', 'imposto sobre heranca', 'itcmd', 'imposto heranca'], eff: { tax: 0.2, taxes: { fortunas: 0.5 }, gini: -0.3, confidence: -2, groups: { financeiro: -6, classe_media: -4, empresarios: -4, sindicatos: 5, estudantes: 5 } } });
+  taxAct('tributar_dividendos', 'Tributar lucros e dividendos', 'Fim da isenção sobre dividendos distribuídos aos acionistas.', { congress: 0.55, once: true, ideo: { e: -40, s: 0 }, kw: ['dividendos', 'lucros e dividendos', 'tributar dividendos', 'taxar dividendos'], eff: { tax: 0.5, taxes: { renda: 1.5 }, gini: -0.4, investShift: -0.3, confidence: -3, groups: { financeiro: -10, empresarios: -8, sindicatos: 5, pobres: 2 } } });
+  act('renda_basica', 'social', 'Renda básica universal', 'Pagamento mensal a todos os cidadãos, sem condicionalidades. Reduz pobreza de forma radical; custa caro.', {
+    cost: 3, once: true, congress: 0.7, minYear: 1960, ideo: { e: -50, s: -10 }, kw: ['renda basica universal', 'renda universal', 'renda cidada'],
+    eff: (st) => ({ budget: { social: 3 }, demand: 0.8, poverty: -6, gini: -1.5, confidence: st.e.debt > st.e.debtTol ? -10 : -4, uStar: 0.2, groups: { pobres: 22, trabalhadores: 10, estudantes: 8, classe_media: -4, financeiro: -12, empresarios: -6 } })
+  });
+  act('congelar_alugueis', 'social', 'Congelar os aluguéis', 'Proíbe reajustes de aluguel. Alivia inquilinos agora; no médio prazo encolhe a oferta de imóveis para alugar (Berlim 2020, Argentina 2020).', {
+    cost: 1, cooldown: 8, ideo: { e: -40, s: 0 }, kw: ['congelar alugueis', 'congelar aluguel', 'aluguel', 'alugueis', 'inquilinos'],
+    eff: (st) => ({ infl: -Math.min(1.5, 0.3 + st.e.infl * 0.01), groups: { pobres: 8, trabalhadores: 5, estudantes: 6, classe_media: 2, empresarios: -6, financeiro: -4 },
+      lag: [{ turns: 6, eff: { investShift: -0.4, poverty: 0.5, infl: 0.6, groups: { classe_media: -3, estudantes: -3 } }, note: 'Com aluguel congelado, proprietários tiraram imóveis do mercado: falta oferta.' }] })
+  });
+  act('cortar_privilegios', 'instituicoes', 'Cortar salários e privilégios de políticos e altos cargos', 'Teto real para supersalários, fim de auxílios e mordomias. Economia pequena; popular, mas irrita o Congresso e a elite do funcionalismo.', {
+    cost: 1, once: true, ideo: { e: 10, s: 0 }, kw: ['privilegios', 'supersalarios', 'salario dos deputados', 'cortar mordomias', 'salario de politicos'],
+    eff: (st) => ({ budget: { admin: -0.05 }, corruption: -1, approval: 2, congress: H.dem(st) ? -8 : 0, groups: { classe_media: 6, pobres: 3, trabalhadores: 3, servidores: -6 } })
+  });
 
   S.ACTIONS = { list: A, byId: {} };
   for (const a of A) S.ACTIONS.byId[a.id] = a;

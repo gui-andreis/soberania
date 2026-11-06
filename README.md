@@ -19,13 +19,14 @@ e acesse http://localhost:8000.
 | Item | Quantidade |
 |---|---|
 | Países | 26, com dados de 1920 a 2025 (população, PIB per capita, inflação, dívida, desemprego, Gini, regimes e líderes históricos) |
-| Ações do governo | 225 (moeda, fiscal, impostos, privatizar/estatizar 10 setores, agro, infraestrutura, social, trabalho, segurança, instituições, defesa, diplomacia com alvo, organizações, meio ambiente) |
+| Ações do governo | 233 (moeda, fiscal, impostos, privatizar/estatizar 10 setores, agro, infraestrutura, social, trabalho, segurança, instituições, defesa, diplomacia com alvo, organizações, meio ambiente) |
 | Eventos | 263: 134 históricos datados, 65 aleatórios, 45 condicionais e 19 do futuro (pós-2025) |
 | Abas | Painel, Aprovação, Atividade, Moeda e preços, Trabalho, Fiscal, Indústria, Setor externo, Social, Defesa e diplomacia, Decisões, Relatórios, Linha do tempo, Conselheiro, Config |
 
 ## Como o motor funciona (sem IA)
 
 - **Economia mensal** (`js/engine/sim.js`): hiato do produto (curva IS), inflação com inércia e expectativas (Phillips, em log para lidar com hiperinflação), regra de Taylor com **juro neutro específico de cada país e época** (por exemplo, o Brasil precisa de juro real mais alto), câmbio por regime (ouro, fixo, banda, flutuante, conversibilidade, euro, dolarizado), dívida pela dinâmica r−g, prêmio de risco, reservas, emissão de moeda e convergência de renda (Solow).
+- **Juros sem almoço grátis:** com BC subordinado você fixa o juro por decreto, inclusive **zero ou negativo**. Juro abaixo da regra técnica derruba a credibilidade e desancora expectativas; juro real muito negativo provoca **fuga da moeda** (dolarização, depreciação, perda de reservas, inflação); juro nominal abaixo de −0,5% trava os bancos (o estímulo encolhe). Inflação e dívida/PIB **não têm teto**.
 - **Calibração histórica:** sem nenhuma ação do jogador, o crescimento de 10 anos fica próximo do real. Rode `node tools/calib.js` para comparar.
 - **Política** (`js/engine/politics.js`): 11 grupos sociais com posição ideológica e peso eleitoral (que muda com a urbanização). Cada medida tem código ideológico; quando contraria o programa do governante, a **base sente traição** e a coerência cai. Exemplo: um governo de esquerda que privatiza perde apoio de sindicatos e servidores; um liberal que faz o mesmo, quase nada.
 - **Desfechos probabilísticos:** ultimatos, guerras, planos de estabilização, golpes, impeachment, adesões e outros mostram as chances **antes** de você decidir (por exemplo, "guerra 72% · mediação 14% · sanções 12% · cede 2%").
@@ -35,11 +36,11 @@ e acesse http://localhost:8000.
 
 Na aba **Config**, cole uma chave gratuita do Google AI Studio e marque o que quer usar:
 
-- **Ordens livres:** a IA mapeia o texto para ações do catálogo ou cria uma medida nova, com efeitos limitados por código.
+- **Ordens livres:** a IA mapeia o texto para ações do catálogo ou cria qualquer medida nova (com efeitos sobre demanda, inflação, salário mínimo, orçamento, impostos, duração etc., limitados por código).
 - **Conselheiro.**
 - **Narrativa dos relatórios.**
 
-Sem chave, tudo funciona offline: o interpretador de ordens e o conselheiro usam regras.
+Sem chave, tudo funciona offline: o conselheiro usa regras e as ordens livres passam pelo **compositor** (`js/ai/composer.js`), que entende *alavanca + verbo + quantidade + prazo* e cria a medida com efeitos calculados a partir do estado do país. Ex.: “congelar o salário mínimo por 3 meses sem repor a inflação”, “cortar 20% do gasto militar”, “proibir importações por 1 ano”, “juros a -1%”. Alavancas offline: salário mínimo, salário dos servidores, preços (gerais e alimentos), aluguéis, combustíveis/energia, impostos, gastos do orçamento, importações/exportações e juros. Fora disso, a interface avisa que é preciso ativar a IA.
 
 ## Dados para melhorar o modo sem IA
 
@@ -57,6 +58,7 @@ js/data/actions.js         catálogo de ações
 js/data/events_*.js        eventos históricos / aleatórios / condicionais + futuro
 js/engine/*.js             motor (efeitos, economia, política, diplomacia, eventos, turnos)
 js/ai/ai.js                interpretador offline, conselheiro, Gemini, log de dados
+js/ai/composer.js          compositor offline de ordens livres (cria medidas novas)
 js/ui/*.js                 gráficos SVG, interface e tela inicial
 tools/                     testes headless em Node (test.js, calib.js, stress.js)
 ```

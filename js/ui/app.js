@@ -42,7 +42,7 @@
   function registerCustom(st) {
     for (const c of st.customActions || []) {
       if (S.ACTIONS.byId[c.id]) continue;
-      const a = { id: c.id, cat: 'instituicoes', name: c.name, desc: c.desc, cost: 2, ideo: c.ideo, eff: c.eff, groups: c.groups, custom: true, once: true };
+      const a = { id: c.id, cat: 'livre', name: c.name, desc: c.desc, cost: c.cost || 2, congress: c.congress || 0, ideo: c.ideo, eff: c.eff, groups: c.groups, custom: true, composed: !!c.composed, once: true };
       S.ACTIONS.list.push(a); S.ACTIONS.byId[a.id] = a;
     }
   }
@@ -203,15 +203,24 @@
       metric({ key: 'invest', title: 'Taxa de investimento', sub: '% do PIB', dec: 1, unitBig: '%', pillUnit: '%' });
   };
 
+  function rateWarn(st) {
+    const w = [];
+    if ((st.e.flight || 0) > 5) w.push(`Juro real de ${U.fmt(st.e.realRate, 1)}%: fuga da moeda (dolarização, compra de estoques, saída de capitais).`);
+    if ((st.e.negRate || 0) > 0) w.push('Juro nominal negativo: bancos perdem margem e o crédito trava; o estímulo é cada vez menor.');
+    if ((st.e.dovMem || 0) > 0.03) w.push('O mercado vê o juro como político: credibilidade do BC em queda e expectativas desancoradas.');
+    return w.length ? `<div class="down small">${w.map(esc).join('<br>')}</div>` : '';
+  }
+
   PAGE_RENDER.moeda = function (st) {
     cardNum = 0;
     const neutral = H.trait(st, 'neutralReal', 2.5);
     const canSet = !st.cbIndep && !['euro', 'dolarizado'].includes(st.fxRegime);
-    const taylor = neutral + st.e.inflExp + 0.5 * (st.e.infl - (st.inflTarget != null ? st.inflTarget : Math.min(st.e.infl, 4))) + 0.5 * st.e.gap;
+    const taylor = st.e.taylor != null ? st.e.taylor : neutral + st.e.inflExp + 0.5 * (st.e.infl - (st.inflTarget != null ? st.inflTarget : Math.min(st.e.infl, 4))) + 0.5 * st.e.gap;
     const controls = `<div class="controls">
       ${canSet ? `<label>Política de juros: <select data-a="ratemode"><option value="auto" ${st.rateMode === 'auto' ? 'selected' : ''}>Técnica (BC segue regra de Taylor)</option><option value="manual" ${st.rateMode === 'manual' ? 'selected' : ''}>Definida pelo governo</option></select></label>
-        ${st.rateMode === 'manual' ? `<label>Taxa alvo: <input type="number" step="0.25" min="0" value="${(+st.e.rateManual).toFixed(2)}" data-a="rateset" style="width:110px"> %</label>` : ''}
-        <span class="muted small">Regra técnica sugere ~${U.fmt(Math.max(0, taylor), 2)}%</span>`
+        ${st.rateMode === 'manual' ? `<label>Taxa alvo: <input type="number" step="0.25" min="-50" value="${(+st.e.rateManual).toFixed(2)}" data-a="rateset" style="width:110px"> %</label>` : ''}
+        <span class="muted small">Regra técnica sugere ~${U.fmt(taylor, 2)}%. Juros abaixo disso estimulam no curto prazo, mas derrubam a credibilidade; juro real muito negativo provoca fuga da moeda e juro nominal negativo trava os bancos.</span>
+        ${rateWarn(st)}`
         : `<span class="muted small">${st.cbIndep ? 'Banco Central autônomo: decide os juros sozinho (regra de Taylor). Você pode pressioná-lo ou retirar a autonomia em Decisões.' : 'Sem moeda própria: os juros acompanham a autoridade monetária externa.'}</span>`}
     </div>`;
     return pageHead('Moeda e preços', 'Juros, inflação, câmbio e emissão de moeda.') +
@@ -328,7 +337,7 @@
     return `<div class="acard ${s.ok ? '' : 'off'}">
       <div class="ahead"><h4>${esc(a.name)}</h4><span class="cost" title="Custo em capital político">${'●'.repeat(cost)}</span></div>
       <p>${esc(a.desc)}</p>
-      <div class="atags">${pp < 1 ? `<span class="tag" title="Chance de aprovação no Congresso">Congresso ${Math.round(pp * 100)}%</span>` : ''}${ideoFit(st, a)}${a.custom ? '<span class="tag">criada por IA</span>' : ''}</div>
+      <div class="atags">${pp < 1 ? `<span class="tag" title="Chance de aprovação no Congresso">Congresso ${Math.round(pp * 100)}%</span>` : ''}${ideoFit(st, a)}${a.custom ? `<span class="tag">${a.composed ? 'criada pela sua ordem' : 'criada por IA'}</span>` : ''}</div>
       ${outcomesPreview(st, a, target)}
       ${a.id === 'declarar_guerra' && target ? `<div class="outs">${S.DIP.warOdds(st, target).map((o) => `<div><div class="pbar"><i style="width:${o.p * 100}%"></i></div><span>${Math.round(o.p * 100)}%</span> ${esc(o.label)}</div>`).join('')}</div>` : ''}
       <div class="afoot">${s.ok ? `<button class="btn primary sm" data-a="queue" data-v="${a.id}" ${target ? `data-t="${target}"` : ''}>Adicionar à fila</button>` : `<small class="muted">${esc(s.why)}</small>`}</div></div>`;
@@ -337,7 +346,7 @@
   PAGE_RENDER.decisoes = function (st) {
     const cats = Object.assign({ todas: 'Todas', disponiveis: 'Disponíveis agora' }, S.ACTION_CATS);
     const q = U.stripAccents(UI.decSearch.toLowerCase());
-    let list = S.ACTIONS.list.filter((a) => !a.target);
+    let list = S.ACTIONS.list.filter((a) => !a.target && (!a.custom || UI.decCat === 'livre'));
     if (UI.decCat === 'disponiveis') list = list.filter((a) => G.actionStatus(st, a).ok);
     else if (UI.decCat !== 'todas') list = list.filter((a) => a.cat === UI.decCat);
     if (q) list = list.filter((a) => U.stripAccents((a.name + ' ' + a.desc + ' ' + (a.kw || []).join(' ')).toLowerCase()).includes(q));
@@ -358,7 +367,8 @@
           ${st.queue.length ? st.queue.map((x, i) => { const a = S.ACTIONS.byId[x.id]; return `<div class="qitem"><span>${esc(a ? a.name : x.id)}${x.target ? ' — ' + esc(H.cname(x.target, st)) : ''}</span><button class="btn sm" data-a="unqueue" data-v="${i}">✕</button></div>`; }).join('') : '<p class="muted">Nenhuma medida na fila. Você pode encerrar o trimestre sem agir — o mundo segue.</p>'}
           <hr>
           <h3>Ordem livre</h3>
-          <p class="muted small">Escreva o que quer fazer, ex.: “privatizar a Petrobras”, “baixar os juros para 9%”, “aumentar o gasto com saúde em 1%”. ${AI.CONFIG.get().useAiOrders && AI.CONFIG.aiReady() ? 'Interpretação via Gemini.' : 'Interpretação offline (sem IA).'}</p>
+          <p class="muted small">Escreva o que quer fazer, com quantidade e prazo se quiser. Ex.: “congelar o salário mínimo por 3 meses sem repor a inflação”, “juros a -1%”, “cortar 20% do gasto militar”, “proibir importações por 1 ano”. ${AI.CONFIG.get().useAiOrders && AI.CONFIG.aiReady() ? 'Interpretação via Gemini (qualquer medida).' : 'Interpretação offline (sem IA).'}</p>
+          ${AI.CONFIG.get().useAiOrders && AI.CONFIG.aiReady() ? '' : `<p class="warn small">⚠️ Sem IA, o jogo cria medidas novas só sobre: ${esc(S.COMPOSER.LEVER_NAMES.join('; '))}, além das cartas do catálogo. Para escrever <b>qualquer</b> coisa, ative a IA em <a href="#" data-a="page" data-v="config">Config</a> (chave gratuita do Gemini).</p>`}
           <textarea id="order" rows="3" placeholder="Sua ordem…"></textarea>
           <button class="btn" data-a="order">Interpretar ordem</button>
           ${ir ? `<div class="intent">${ir.html}</div>` : ''}
@@ -560,18 +570,46 @@
     UI.intentResults = { html: offlineIntentHtml(st, text) };
     UI.render();
   };
+  // registra uma medida montada pelo compositor offline como ação personalizada (vai no save)
+  function registerComposed(st, m) {
+    st.customActions = st.customActions || [];
+    const same = st.customActions.find((c) => c.composed && c.name === m.name && !st.flags['done_' + c.id] && !st.queue.some((q) => q.id === c.id));
+    if (same) { same.eff = m.eff; same.desc = m.desc; const a = S.ACTIONS.byId[same.id]; if (a) { a.eff = m.eff; a.desc = m.desc; } return same.id; }
+    const id = 'custom_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+    st.customActions.push({ id: id, name: m.name, desc: m.desc, ideo: m.ideo, eff: m.eff, cost: m.cost, congress: m.congress, composed: true });
+    registerCustom(st);
+    return id;
+  }
   function offlineIntentHtml(st, text) {
-    const res = AI.INTENT.parse(st, text);
-    AI.DATALOG.add({ type: 'ordem', source: 'offline', input: text, output: res.map((r) => r.label), matched: res.length > 0, ctx: AI.DATALOG.context(st) });
-    if (!res.length) return '<p class="muted small">Não entendi essa ordem. Ela foi registrada no log de dados (Config) para virar uma nova medida no futuro. Tente usar palavras como “privatizar”, “juros”, “imposto”, “gasto com saúde”, “reforma agrária”…</p>';
-    return '<p class="small">Entendi:</p>' + res.map(intentRow).join('');
+    const comp = S.COMPOSER.parse(st, text);
+    let res = AI.INTENT.parse(st, text);
+    const levers = comp.measures.map((m) => m.lever);
+    if (levers.includes('gasto')) res = res.filter((r) => r.type !== 'budget'); // o compositor entende melhor quantidades de gasto
+    AI.DATALOG.add({ type: 'ordem', source: 'offline', input: text, output: comp.measures.map((m) => m.name).concat(res.map((r) => r.label)), matched: comp.measures.length + res.length > 0, ctx: AI.DATALOG.context(st) });
+    let html = '';
+    if (comp.measures.length) {
+      html += '<p class="small">Medida(s) criada(s) a partir da sua ordem:</p>';
+      for (const m of comp.measures) {
+        const id = registerComposed(st, m);
+        html += intentRow({ type: 'action', id: id, label: m.name, composed: m });
+      }
+    }
+    for (const f of comp.fails) html += `<p class="muted small">${esc(f)}</p>`;
+    if (res.length) html += `<p class="small">${comp.measures.length ? 'Cartas parecidas do catálogo:' : 'Entendi (cartas do catálogo):'}</p>` + res.map(intentRow).join('');
+    if (!comp.measures.length && !res.length) {
+      return `<p class="warn small">⚠️ O interpretador offline não entendeu essa ordem. Para criar <b>qualquer</b> medida, ative a IA em <a href="#" data-a="page" data-v="config">Config</a>. A ordem foi registrada no log de dados.</p><p class="muted small">Sem IA dá para escrever sobre: ${esc(S.COMPOSER.LEVER_NAMES.join('; '))}, ou usar palavras das cartas (“privatizar”, “reforma agrária”…).</p>`;
+    }
+    if (!comp.measures.length && !(AI.CONFIG.get().useAiOrders && AI.CONFIG.aiReady())) html += '<p class="muted small">Não era isso? Medidas fora do catálogo precisam da IA (Config).</p>';
+    return html;
   }
   function intentRow(r) {
     const st = UI.st;
     if (r.type === 'action') {
       const a = S.ACTIONS.byId[r.id];
       const s = G.actionStatus(st, a, r.target);
-      return `<div class="qitem"><span>${esc(r.label)}${r.target ? ' — ' + esc(H.cname(r.target, st)) : ''}</span>${a.target && !r.target ? `<button class="btn sm" data-a="page" data-v="defesa">escolher país</button>` : s.ok ? `<button class="btn sm primary" data-a="queue" data-v="${r.id}" ${r.target ? `data-t="${r.target}"` : ''}>+ fila</button>` : `<small class="muted">${esc(s.why)}</small>`}</div>`;
+      const pp = G.congressPassProb(st, a);
+      const extra = r.composed ? `<small class="muted">${esc(r.composed.desc)}${S.COMPOSER.preview(r.composed) ? '<br>Efeitos: ' + esc(S.COMPOSER.preview(r.composed)) : ''}<br>Custo ${'●'.repeat(G.actionCost(st, a))}${pp < 1 ? ' · Congresso ' + Math.round(pp * 100) + '%' : ''}</small>` : '';
+      return `<div class="qitem"><span>${esc(r.label)}${r.target ? ' — ' + esc(H.cname(r.target, st)) : ''}${extra ? '<br>' + extra : ''}</span>${a.target && !r.target ? `<button class="btn sm" data-a="page" data-v="defesa">escolher país</button>` : s.ok ? `<button class="btn sm primary" data-a="queue" data-v="${r.id}" ${r.target ? `data-t="${r.target}"` : ''}>+ fila</button>` : `<small class="muted">${esc(s.why)}</small>`}</div>`;
     }
     if (r.type === 'rate' || r.type === 'rateDelta') {
       const ok = !st.cbIndep && !['euro', 'dolarizado'].includes(st.fxRegime);
@@ -635,7 +673,7 @@
         if (nv < 0 || Math.abs(nv - b0[v]) > 1.0001) return;
         st.e.budget[v] = nv; UI.render(); break;
       }
-      case 'applyrate': st.rateMode = 'manual'; st.e.rateManual = Math.max(0, +v); UI.intentResults = { html: '<p class="up small">Juro alvo definido em ' + U.fmt(+v, 2) + '%.</p>' }; UI.render(); break;
+      case 'applyrate': st.rateMode = 'manual'; st.e.rateManual = U.clamp(+v, -50, 1e6); UI.intentResults = { html: '<p class="up small">Juro alvo definido em ' + U.fmt(+v, 2) + '%.</p>' }; UI.render(); break;
       case 'applybud': {
         const b0 = st.budgetStart || st.e.budget, d = +el.dataset.d;
         const nv = U.clamp(st.e.budget[v] + d, Math.max(0, b0[v] - 1), b0[v] + 1);
@@ -668,7 +706,7 @@
     }
     if (!st) return;
     if (el.dataset.a === 'ratemode') { st.rateMode = el.value; if (st.rateMode === 'manual') st.e.rateManual = Math.round(st.e.rate * 4) / 4; UI.render(); }
-    if (el.dataset.a === 'rateset') { st.e.rateManual = Math.max(0, parseFloat(el.value) || 0); UI.render(); }
+    if (el.dataset.a === 'rateset') { st.e.rateManual = U.clamp(parseFloat(el.value) || 0, -50, 1e6); UI.render(); }
   });
   document.addEventListener('input', function (ev) {
     const el = ev.target;

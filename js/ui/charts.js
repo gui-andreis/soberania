@@ -21,7 +21,8 @@
   function logTicks(min, max) {
     const out = [];
     const a = Math.floor(Math.log10(Math.max(1e-9, min))), b = Math.ceil(Math.log10(max));
-    for (let p = a; p <= b; p++) out.push(Math.pow(10, p));
+    const step = Math.max(1, Math.ceil((b - a) / 7)); // muitas décadas (hiperinflação): espaça os rótulos
+    for (let p = a; p <= b; p += step) out.push(Math.pow(10, p));
     return out;
   }
 

@@ -48,7 +48,7 @@
     'mineracao': ['vale', 'minerio', 'mina'], 'telecom': ['telefonia', 'telebras', 'telecomunicacoes'], 'correios': ['correio'], 'saneamento': ['sabesp', 'agua'],
     'guerra': ['invadir', 'atacar', 'ofensiva'], 'salario minimo': ['minimo', 'piso salarial']
   };
-  function norm(s) { return U.stripAccents(s).replace(/[^a-z0-9%,. ]/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function norm(s) { return U.stripAccents(s).replace(/(^|\s)-(?=\d)/g, '$1§').replace(/[^a-z0-9%,.§ ]/g, ' ').replace(/§/g, '-').replace(/\s+/g, ' ').trim(); }
   function expand(text) {
     let t = ' ' + norm(text) + ' ';
     for (const k in SYN) for (const v of SYN[k]) if (t.includes(' ' + v + ' ')) t += ' ' + k + ' ';
@@ -91,8 +91,11 @@
     // 2) parâmetros numéricos: juros
     const num = (re) => { const m = t.match(re); return m ? parseFloat(m[1].replace(',', '.')) : null; };
     if (/juros/.test(t)) {
-      const v = num(/juros[a-z ]*?(?:para|a|em)?\s*(\d+(?:[.,]\d+)?)\s*%?/);
-      if (v !== null && v < 200) results.push({ type: 'rate', value: v, score: 9, label: 'Definir juro básico em ' + U.fmt(v, 2) + '%' });
+      let v = num(/juros[a-z ]*?(?:para|a|em)?\s*(?:menos\s+)?(-?\d+(?:[.,]\d+)?)\s*%?/);
+      if (v !== null && (/juros[a-z ]*?menos\s+\d/.test(t) || /negativ/.test(t))) v = -Math.abs(v);
+      if (v === null && /\bzerar\b|\bzero\b/.test(t)) v = 0;
+      if (v === null && /negativ/.test(t)) v = -1;
+      if (v !== null) results.push({ type: 'rate', value: v, score: 9, label: 'Definir juro básico em ' + U.fmt(v, 2) + '%' + (v < 0 ? ' (juro negativo)' : '') });
       else if (/aumentar/.test(t)) results.push({ type: 'rateDelta', value: 1, score: 6, label: 'Subir o juro básico em 1 p.p.' });
       else if (/reduzir/.test(t)) results.push({ type: 'rateDelta', value: -1, score: 6, label: 'Cortar o juro básico em 1 p.p.' });
     }
@@ -200,8 +203,15 @@ O governante deu esta ordem: "${text}"
 Catálogo de ações disponíveis (id: nome):
 ${catalog}
 
-Responda SOMENTE JSON: {"acoes":["id",...],"alvo":"código do país ou null","custom":null | {"nome":"...","descricao":"...","efeitos":{"gap":n,"infl":n,"confidence":n,"unemp":n,"debt":n,"poverty":n,"legit":n,"approval":n},"grupos":{"trabalhadores":n,"pobres":n,"classe_media":n,"empresarios":n,"financeiro":n,"agro":n,"militares":n,"religiosos":n,"servidores":n,"estudantes":n,"sindicatos":n},"ideologia":{"e":-100..100,"s":-100..100}},"explicacao":"curta, em português"}
-Use "acoes" quando a ordem corresponder ao catálogo. Use "custom" só se nada corresponder; efeitos pequenos e realistas (|valor| <= 5, grupos <= 12).`;
+Inflação atual ${U.fmt(st.e.infl, 1)}% | Salário mínimo real (índice) ${U.fmt(st.e.minWage, 0)} | Indexação salarial ${U.fmt(st.e.wageIndex, 2)} (0 = sem reajuste, 1 = repõe toda a inflação) | Orçamento (% PIB): ${Object.keys(st.e.budget).map((k) => k + ' ' + U.fmt(st.e.budget[k], 1)).join(', ')} | Carga tributária ${U.fmt(st.e.tax, 1)}% PIB
+
+Responda SOMENTE JSON: {"acoes":["id",...],"alvo":"código do país ou null","custom":null | {"nome":"...","descricao":"...","duracao_trimestres":null|n,
+"efeitos":{"demand":n,"gap":n,"infl":n,"inflExp":n,"supply":n,"confidence":n,"unemp":n,"debt":n,"poverty":n,"legit":n,"approval":n,"minWage":n,"wageIndex":n,"fx":n,"reserves":n,"investShift":n,"tax":n,"shortage":n,"protests":n,"corruption":n,"industry":n,"gpot":n},
+"orcamento":{"saude":n,"educacao":n,"social":n,"previdencia":n,"infra":n,"subsidios":n,"admin":n,"militar":n},
+"grupos":{"trabalhadores":n,"pobres":n,"classe_media":n,"empresarios":n,"financeiro":n,"agro":n,"militares":n,"religiosos":n,"servidores":n,"estudantes":n,"sindicatos":n},"ideologia":{"e":-100..100,"s":-100..100}},"explicacao":"curta, em português"}
+Significado: demand = impulso na demanda (hiato do produto, p.p.); infl/inflExp = p.p. na inflação anual/expectativa; supply = choque de oferta na inflação; minWage = % no salário mínimo real; wageIndex = mudança na indexação salarial (ex.: -0.3 para congelar reajustes); orcamento = p.p. do PIB de gasto; tax = p.p. do PIB de carga tributária; gpot = p.p. no crescimento potencial; shortage = escassez 0-100.
+"duracao_trimestres": se a medida for temporária, os efeitos de nível (minWage, wageIndex, orcamento, tax) são revertidos ao fim.
+Use "acoes" quando a ordem corresponder exatamente ao catálogo. Caso contrário use "custom" e calcule efeitos realistas e proporcionais ao tamanho da medida e ao estado do país; respeite os efeitos colaterais (nada é de graça).`;
     const raw = await GEMINI.call(prompt, true);
     let obj;
     try { obj = JSON.parse(raw); } catch (e) { throw new Error('Resposta inválida do Gemini'); }
@@ -209,9 +219,19 @@ Use "acoes" quando a ordem corresponder ao catálogo. Use "custom" só se nada c
     obj.acoes = (obj.acoes || []).filter((id) => S.ACTIONS.byId[id]);
     if (obj.custom) {
       const c = obj.custom, eff = {}, groups = {};
-      const LIM = { gap: 3, infl: 4, confidence: 8, unemp: 1.5, debt: 3, poverty: 3, legit: 6, approval: 4 };
-      for (const k in LIM) if (c.efeitos && typeof c.efeitos[k] === 'number') eff[k] = U.clamp(c.efeitos[k], -LIM[k], LIM[k]);
-      for (const g of S.POLITICS.groupIds) if (c.grupos && typeof c.grupos[g] === 'number') groups[g] = U.clamp(c.grupos[g], -12, 12);
+      const LIM = { demand: 4, gap: 4, infl: 15, inflExp: 10, supply: 8, confidence: 20, unemp: 4, debt: 15, poverty: 8, legit: 15, approval: 8, minWage: 100, wageIndex: 1, fx: 40, reserves: 5, investShift: 3, tax: 6, shortage: 30, protests: 30, corruption: 10, industry: 8, gpot: 0.6 };
+      for (const k in LIM) if (c.efeitos && typeof c.efeitos[k] === 'number' && isFinite(c.efeitos[k])) eff[k] = U.clamp(c.efeitos[k], -LIM[k], LIM[k]);
+      const bud = {};
+      for (const k in st.e.budget) if (c.orcamento && typeof c.orcamento[k] === 'number' && isFinite(c.orcamento[k])) bud[k] = U.clamp(c.orcamento[k], -Math.min(5, st.e.budget[k]), 5);
+      if (Object.keys(bud).length) eff.budget = bud;
+      for (const g of S.POLITICS.groupIds) if (c.grupos && typeof c.grupos[g] === 'number') groups[g] = U.clamp(c.grupos[g], -25, 25);
+      const q = Math.round(+c.duracao_trimestres || 0);
+      if (q > 0) {
+        const rev = {};
+        for (const k of ['minWage', 'wageIndex', 'tax']) if (eff[k]) rev[k] = -eff[k];
+        if (eff.budget) { rev.budget = {}; for (const k in eff.budget) rev.budget[k] = -eff.budget[k]; }
+        if (Object.keys(rev).length) eff.lag = [{ turns: U.clamp(q, 1, 40), eff: rev, note: 'Fim da medida temporária: ' + String(c.nome || '').slice(0, 60) + '.' }];
+      }
       obj.custom = { nome: String(c.nome || 'Medida especial').slice(0, 80), descricao: String(c.descricao || '').slice(0, 300), eff: eff, groups: groups, ideo: { e: U.clamp((c.ideologia || {}).e || 0, -100, 100), s: U.clamp((c.ideologia || {}).s || 0, -100, 100) } };
     }
     DATALOG.add({ type: 'ordem', source: 'gemini', input: text, output: obj, matched: obj.acoes.length > 0 || !!obj.custom, ctx: DATALOG.context(st) });
