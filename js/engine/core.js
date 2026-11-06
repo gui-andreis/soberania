@@ -52,7 +52,8 @@
     press: 'Liberdade de imprensa', environment: 'Meio ambiente', approval: 'Aprovação geral', legit: 'Legitimidade',
     stability: 'Estabilidade', congress: 'Apoio no Congresso', military: 'Lealdade militar', protests: 'Protestos',
     coherence: 'Coerência ideológica', strength: 'Poder militar', warEx: 'Cansaço de guerra', shortage: 'Escassez',
-    uStar: 'Desemprego estrutural', capital: 'Capital político'
+    uStar: 'Desemprego estrutural', capital: 'Capital político', wageIndex: 'Reajuste automático do mínimo', demand: 'Demanda',
+    inflMult: 'Multiplicador da inflação', investShift: 'Investimento privado', supply: 'Choque de oferta', tfp: 'Produtividade'
   };
 
   // Chaves numéricas simples -> caminho no estado
@@ -69,7 +70,7 @@
   };
   const BOUNDS = {
     confShift: [-60, 60], unemp: [0.5, 45], soe: [0, 100], tax: [3, 65], corruption: [0, 100], press: [0, 100], environment: [0, 100],
-    legit: [0, 100], protests: [0, 100], coherence: [0, 100], reserves: [0, 40], debt: [0, 400], invest: [3, 50], minWage: [20, 300],
+    legit: [0, 100], protests: [0, 100], coherence: [0, 100], reserves: [0, 40], debt: [0, 1e9], invest: [3, 50], minWage: [20, 300],
     capital: [0, 12], polarization: [0, 100], warEx: [0, 100], monetize: [0, 1], shortage: [0, 100], indexation: [-0.4, 0.4], extShare: [0, 0.9], wageIndex: [0, 1.2]
   };
 

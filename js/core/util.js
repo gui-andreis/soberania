@@ -72,12 +72,20 @@
   // Formatação pt-BR
   U.fmt = function (v, dec) {
     if (v === null || v === undefined || isNaN(v)) return '—';
+    if (!isFinite(v)) return v > 0 ? '∞' : '−∞';
+    if (Math.abs(v) >= 1e12) { // números astronômicos (hiperinflação sem teto): notação científica legível
+      const ex = Math.floor(Math.log10(Math.abs(v)));
+      const SUP = '⁰¹²³⁴⁵⁶⁷⁸⁹';
+      return (v / Math.pow(10, ex)).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + '×10' + String(ex).split('').map((d) => SUP[+d]).join('');
+    }
     if (dec === undefined) dec = Math.abs(v) >= 100 ? 0 : 1;
     return v.toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
   };
   U.fmtSigned = (v, dec) => (v > 0 ? '+' : '') + U.fmt(v, dec);
   U.fmtBig = function (v) {
     const a = Math.abs(v);
+    if (a >= 1e12) return U.fmt(v);
+    if (a >= 1e9) return U.fmt(v / 1e9, 2) + ' bi';
     if (a >= 1e6) return U.fmt(v / 1e6, 2) + ' mi';
     if (a >= 1e3) return U.fmt(v / 1e3, 1) + ' mil';
     return U.fmt(v, 1);
