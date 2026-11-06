@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Soberania — Simulador Geopolítico</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app"><p style="padding:40px;text-align:center;color:#a8998a">Carregando…</p></div>
+
+  <!-- núcleo -->
+  <script src="js/core/util.js"></script>
+  <!-- dados -->
+  <script src="js/data/world.js"></script>
+  <script src="js/data/countries.js"></script>
+  <script src="js/data/politics.js"></script>
+  <!-- motor -->
+  <script src="js/engine/core.js"></script>
+  <script src="js/engine/sim.js"></script>
+  <script src="js/engine/politics.js"></script>
+  <script src="js/engine/diplomacy.js"></script>
+  <script src="js/engine/game.js"></script>
+  <script src="js/engine/events.js"></script>
+  <!-- conteúdo -->
+  <script src="js/data/actions.js"></script>
+  <script src="js/data/events_hist.js"></script>
+  <script src="js/data/events_rand.js"></script>
+  <script src="js/data/events_cond.js"></script>
+  <!-- IA opcional + interface -->
+  <script src="js/ai/ai.js"></script>
+  <script src="js/ui/charts.js"></script>
+  <script src="js/ui/app.js"></script>
+  <script src="js/ui/setup.js"></script>
+  <script>
+    window.addEventListener('error', function (e) { console.error(e.error || e.message); });
+    S.UI.render();
+  </script>
+</body>
+</html>
