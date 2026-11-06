@@ -4,7 +4,9 @@ Simulador geopolítico por turnos (trimestres), sem IA obrigatória. Você escol
 
 ## Como jogar
 
-Abra `index.html` no navegador (Chrome/Edge/Firefox). Não precisa de instalação nem de build.
+**Jogue online:** https://gui-andreis.github.io/soberania/
+
+Ou rode localmente: abra `index.html` no navegador (Chrome/Edge/Firefox). Não precisa de instalação nem de build.
 
 Se o navegador bloquear algo por estar em `file://`, sirva a pasta:
 
